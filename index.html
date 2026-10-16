@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Labut Voleybolu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600&display=swap">
+<style>
+/* Layout: one centered 16:9 court, scoreboard drawn on the canvas, quiet controls strip beneath */
+:root {
+  --wall: #1b2233;
+  --ink: #f3ece0;
+  --muted: #9aa3b8;
+  --red: #e0413a;
+  --navy: #2e5bd8;
+  --chip: #262f45;
+  --display: "Bungee", "Impact", "Arial Black", sans-serif;
+  --body: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--wall);
+  color: var(--ink);
+  font-family: var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.wrap { width: 100%; max-width: 1100px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.stage { position: relative; width: 100%; }
+.wrap:fullscreen { max-width: none; justify-content: center; background: var(--wall); padding: 12px; box-sizing: border-box; }
+.wrap:fullscreen .stage { width: min(100%, calc((100vh - 24px) * 16 / 9)); }
+.wrap:fullscreen .touch { position: absolute; left: 12px; right: 12px; bottom: 12px; width: auto; opacity: 0.85; }
+.fs {
+  position: absolute; top: max(10px, env(safe-area-inset-top, 0px)); right: max(10px, env(safe-area-inset-right, 0px));
+  width: 40px; height: 40px; border: 0; border-radius: 8px; cursor: pointer;
+  background: rgba(11, 15, 25, 0.7); color: var(--ink); display: grid; place-items: center; z-index: 2;
+}
+.fs:hover { background: rgba(11, 15, 25, 0.9); }
+.fs:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.fs svg { width: 20px; height: 20px; }
+canvas {
+  display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9;
+  border-radius: 6px; background: #121826; touch-action: none; cursor: pointer;
+  outline: none;
+}
+canvas:focus-visible { box-shadow: 0 0 0 3px var(--navy); }
+.overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; text-align: center;
+  background: rgba(14, 18, 30, 0.62); border-radius: 6px; padding: 16px;
+}
+.overlay h1 {
+  font-family: var(--display); font-weight: 400; margin: 0;
+  font-size: clamp(26px, 6vw, 60px); line-height: 1; letter-spacing: 0.02em;
+  text-wrap: balance;
+}
+.overlay h1 .r { color: var(--red); }
+.overlay p { margin: 0; color: var(--muted); font-size: clamp(13px, 1.8vw, 16px); max-width: 44ch; }
+.btn {
+  font-family: var(--display); font-size: clamp(15px, 2.2vw, 20px);
+  background: var(--red); color: #fff; border: 0; border-radius: 999px;
+  padding: 12px 30px; cursor: pointer; letter-spacing: 0.04em;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.help {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center;
+  color: var(--muted); font-size: 13px; max-width: 1100px;
+}
+kbd {
+  font-family: var(--body); font-weight: 600; font-size: 12px; color: var(--ink);
+  background: var(--chip); border-radius: 4px; padding: 2px 7px;
+}
+.touch { display: none; width: 100%; max-width: 1100px; gap: 10px; }
+.touch button {
+  flex: 1; font-family: var(--display); font-size: 20px; color: var(--ink);
+  background: var(--chip); border: 0; border-radius: 10px; padding: 16px 0;
+  touch-action: none;
+}
+.touch button.jump { flex: 1.6; background: var(--red); color: #fff; }
+.touch button.on { filter: brightness(1.35); }
+@media (pointer: coarse) { .touch { display: flex; } }
+</style>
+<style>html,body{margin:0}</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+<div class="stage">
+  <button class="fs" id="fsBtn" aria-label="Tam ekran" title="Tam ekran (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path id="fsIcon" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <canvas id="game" tabindex="0" aria-label="Labut voleybolu oyun alanı"></canvas>
+  <div class="overlay" id="overlay">
+    <h1>Labut <span class="r">Voleybolu</span></h1>
+    <p id="ovText">Topu karşı sahanın yerine düşür. 11 sayıya ilk ulaşan kazanır.</p>
+    <button class="btn" id="startBtn">Başla</button>
+  </div>
+</div>
+
+<div class="help" id="help">
+  <span><kbd>←</kbd> <kbd>→</kbd> hareket</span>
+  <span><kbd>Fare tıklaması</kbd> zıpla</span>
+  <span><kbd>↑</kbd> / <kbd>Boşluk</kbd> da zıplatır</span>
+  <span><kbd>P</kbd> duraklat</span>
+  <span><kbd>F</kbd> tam ekran</span>
+</div>
+
+<div class="touch" aria-hidden="true">
+  <button id="tl">◀</button>
+  <button id="tr">▶</button>
+  <button id="tj" class="jump">Zıpla</button>
+</div>
+</div>
+
+<script>
+(() => {
+  const W = 960, H = 540, G = 470;
+  const NET_X = W / 2, NET_W = 12, NET_TOP = G - 200, S = 1.5;
+  const BALL_R = 20, BALL_G = 0.36, PIN_G = 0.9, JUMP = 16;
+  const HEAD = { y: -142, r: 23 }, BELLY = { y: -57, r: 36 }, PIN_HALF = 39;
+  const WIN = 11, SUB = 4;
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const ovText = document.getElementById('ovText');
+  const startBtn = document.getElementById('startBtn');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  addEventListener('resize', resize);
+
+  const mkPin = (x, color, face) => ({ x, y: G, vx: 0, vy: 0, ground: true, color, face, squash: 0, cool: 0, tilt: 0 });
+  const player = mkPin(230, '#e0413a', 1);
+  const cpu = mkPin(730, '#2e5bd8', -1);
+  const ball = { x: 246, y: 170, vx: 0, vy: 0, spin: 0 };
+
+  let state = 'title';   // title | serve | play | point | over | paused
+  let timer = 0, server = player, score = { p: 0, c: 0 }, msg = '', flash = 0;
+  let aiOffset = 10, aiTargetCache = null;
+
+  const hot = window.claude?.hot;
+  const boot = (data) => {
+    if (data && data.score) { score = data.score; }
+  };
+  hot?.snapshot?.(() => ({ score }));
+  hot?.ready ? hot.ready(boot) : boot(hot?.data ?? {});
+
+  // ---------- input ----------
+  const keys = { left: false, right: false };
+  const touch = { left: false, right: false };
+  function jump(pin) { if (pin.ground && (state === 'play' || state === 'serve')) { pin.vy = -JUMP; pin.ground = false; } }
+
+  addEventListener('keydown', (e) => {
+    const k = e.key;
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(k)) e.preventDefault();
+    if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = true;
+    if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = true;
+    if (k === 'ArrowUp' || k === ' ' || k === 'w' || k === 'W') jump(player);
+    if (k === 'p' || k === 'P') togglePause();
+    if (k === 'f' || k === 'F') toggleFullscreen();
+    if (k === 'Enter' && (state === 'title' || state === 'over')) start();
+  });
+  addEventListener('keyup', (e) => {
+    const k = e.key;
+    if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
+    if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+  });
+  addEventListener('blur', () => { keys.left = keys.right = false; });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.focus();
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (state === 'paused') { togglePause(); return; }
+    jump(player);
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const hold = (id, prop) => {
+    const b = document.getElementById(id);
+    const on = (e) => { e.preventDefault(); touch[prop] = true; b.classList.add('on'); };
+    const off = () => { touch[prop] = false; b.classList.remove('on'); };
+    b.addEventListener('pointerdown', on);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => b.addEventListener(t, off));
+  };
+  hold('tl', 'left'); hold('tr', 'right');
+  const tj = document.getElementById('tj');
+  tj.addEventListener('pointerdown', (e) => { e.preventDefault(); tj.classList.add('on'); jump(player); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => tj.addEventListener(t, () => tj.classList.remove('on')));
+
+  startBtn.addEventListener('click', start);
+
+  const wrap = document.getElementById('wrap');
+  const fsBtn = document.getElementById('fsBtn');
+  const fsIcon = document.getElementById('fsIcon');
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  function toggleFullscreen() {
+    try {
+      if (fsEl()) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else {
+        const req = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
+        if (!req) { fsUnsupported(); return; }
+        const r = req.call(wrap);
+        if (r && r.catch) r.catch(fsUnsupported);
+      }
+    } catch (e) { fsUnsupported(); }
+  }
+  function fsUnsupported() { msg = 'Tam ekran bu tarayıcıda açılamadı'; flash = 1; if (state === 'title') { ovText.textContent = 'Tam ekran bu görünümde desteklenmiyor. Oyunu normal boyutta oynayabilirsin.'; } }
+  function onFs() {
+    const on = !!fsEl();
+    fsIcon.setAttribute('d', on ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5');
+    fsBtn.setAttribute('aria-label', on ? 'Tam ekrandan çık' : 'Tam ekran');
+    fsBtn.title = on ? 'Tam ekrandan çık (F)' : 'Tam ekran (F)';
+    canvas.focus();
+  }
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
+  fsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleFullscreen(); });
+
+  function togglePause() {
+    if (state === 'paused') { state = pausedFrom; overlay.hidden = true; canvas.focus(); }
+    else if (state === 'play' || state === 'serve' || state === 'point') {
+      pausedFrom = state; state = 'paused';
+      overlay.querySelector('h1').innerHTML = 'Mola';
+      ovText.textContent = `Skor ${score.p} – ${score.c}. Devam etmek için tıkla ya da P'ye bas.`;
+      startBtn.textContent = 'Devam';
+      overlay.hidden = false;
+    }
+  }
+  let pausedFrom = 'play';
+
+  function start() {
+    if (state === 'paused') { togglePause(); return; }
+    if (state === 'over' || state === 'title') { score = { p: 0, c: 0 }; server = player; }
+    overlay.hidden = true;
+    player.x = 230; cpu.x = 730;
+    setupServe();
+    canvas.focus();
+  }
+
+  function setupServe() {
+    state = 'serve'; timer = 55;
+    ball.vx = 0; ball.vy = 0;
+    ball.x = server === player ? player.x + 11 : cpu.x - 11;
+    ball.y = 110;
+    msg = server === player ? 'Servis sende' : 'Servis rakipte';
+    aiOffset = 9 + Math.random() * 20;
+  }
+
+  function point(winner) {
+    if (winner === player) score.p++; else score.c++;
+    server = winner;
+    flash = 1;
+    msg = winner === player ? 'Sayı senin!' : 'Rakip sayı aldı';
+    if (score.p >= WIN || score.c >= WIN) {
+      state = 'over';
+      const won = score.p > score.c;
+      overlay.querySelector('h1').innerHTML = won ? 'Kazandın <span class="r">!</span>' : 'Rakip <span class="r">kazandı</span>';
+      ovText.textContent = `Son skor ${score.p} – ${score.c}.`;
+      startBtn.textContent = 'Tekrar oyna';
+      setTimeout(() => { overlay.hidden = false; startBtn.focus(); }, 700);
+    } else {
+      state = 'point'; timer = 65;
+    }
+  }
+
+  // ---------- AI ----------
+  function predictLanding() {
+    let x = ball.x, y = ball.y, vx = ball.vx, vy = ball.vy;
+    for (let i = 0; i < 400; i++) {
+      vy += BALL_G; x += vx; y += vy;
+      if (x < BALL_R) { x = BALL_R; vx = -vx; }
+      if (x > W - BALL_R) { x = W - BALL_R; vx = -vx; }
+      if (vy > 0 && y >= G - 170) return x;
+    }
+    return x;
+  }
+
+  function aiControl() {
+    let target = 730;
+    const land = predictLanding();
+    const coming = ball.x > NET_X - 40 || land > NET_X;
+    if (state === 'serve' && server === cpu) target = ball.x + 11;
+    else if (state === 'play' && coming && land > NET_X) target = land + aiOffset;
+    target = Math.max(NET_X + NET_W / 2 + PIN_HALF, Math.min(W - PIN_HALF, target));
+    const dx = target - cpu.x;
+    const speed = 6.8;
+    const want = Math.abs(dx) < 4 ? 0 : Math.sign(dx) * Math.min(speed, Math.abs(dx) * 0.5);
+    cpu.vx += (want - cpu.vx) * 0.4;
+
+    // jump to spike when ball drops near the net on its side
+    if (state === 'play' && cpu.ground && ball.x > NET_X) {
+      const near = Math.abs(ball.x - cpu.x) < 55;
+      const height = G - ball.y;
+      if (near && height > 220 && height < 340 && ball.vy > -1 && cpu.x < NET_X + 190 && Math.random() < 0.18) jump(cpu);
+    }
+  }
+
+  // ---------- physics ----------
+  function updatePin(pin, f) {
+    pin.vy += PIN_G * f;
+    pin.y += pin.vy * f;
+    if (pin.y >= G) {
+      if (!pin.ground && pin.vy > 5) pin.squash = Math.min(0.22, pin.vy * 0.014);
+      pin.y = G; pin.vy = 0; pin.ground = true;
+    }
+    pin.x += pin.vx * f;
+    const min = pin === player ? PIN_HALF : NET_X + NET_W / 2 + PIN_HALF;
+    const max = pin === player ? NET_X - NET_W / 2 - PIN_HALF : W - PIN_HALF;
+    if (pin.x < min) { pin.x = min; pin.vx = 0; }
+    if (pin.x > max) { pin.x = max; pin.vx = 0; }
+  }
+
+  function collideCircle(cx, cy, r, pvx, pvy, pin) {
+    const dx = ball.x - cx, dy = ball.y - cy;
+    const d = Math.hypot(dx, dy), min = r + BALL_R;
+    if (d >= min || d === 0) return false;
+    const nx = dx / d, ny = dy / d;
+    ball.x = cx + nx * min; ball.y = cy + ny * min;
+    const rvx = ball.vx - pvx, rvy = ball.vy - pvy;
+    const vn = rvx * nx + rvy * ny;
+    if (vn < 0) {
+      const e = pin ? 0.92 : 0.6;
+      ball.vx = rvx - (1 + e) * vn * nx + pvx;
+      ball.vy = rvy - (1 + e) * vn * ny + pvy;
+      if (pin) {
+        let s = Math.hypot(ball.vx, ball.vy);
+        if (s < 11) { ball.vx *= 11 / s; ball.vy *= 11 / s; s = 11; }
+        if (s > 19) { ball.vx *= 19 / s; ball.vy *= 19 / s; }
+        pin.cool = 4;
+        if (pin === cpu) aiOffset = 6 + Math.random() * 26;
+      }
+    }
+    return true;
+  }
+
+  function updateBall(f) {
+    ball.vy += BALL_G * f;
+    ball.x += ball.vx * f;
+    ball.y += ball.vy * f;
+    ball.spin += ball.vx * 0.012 * f;
+
+    if (ball.x < BALL_R) { ball.x = BALL_R; ball.vx = Math.abs(ball.vx) * 0.85; }
+    if (ball.x > W - BALL_R) { ball.x = W - BALL_R; ball.vx = -Math.abs(ball.vx) * 0.85; }
+
+    // net: rounded cap + post
+    if (ball.y < NET_TOP) collideCircle(NET_X, NET_TOP, NET_W / 2, 0, 0, null);
+    else if (Math.abs(ball.x - NET_X) < NET_W / 2 + BALL_R) {
+      if (ball.x < NET_X) { ball.x = NET_X - NET_W / 2 - BALL_R; ball.vx = -Math.abs(ball.vx) * 0.6 - 0.5; }
+      else { ball.x = NET_X + NET_W / 2 + BALL_R; ball.vx = Math.abs(ball.vx) * 0.6 + 0.5; }
+    }
+
+    for (const pin of [player, cpu]) {
+      if (pin.cool > 0) continue;
+      collideCircle(pin.x, pin.y + HEAD.y, HEAD.r, pin.vx, pin.vy, pin) ||
+        collideCircle(pin.x, pin.y + BELLY.y, BELLY.r, pin.vx, pin.vy, pin);
+    }
+
+    if (ball.y >= G - BALL_R) {
+      ball.y = G - BALL_R;
+      point(ball.x < NET_X ? cpu : player);
+      ball.vx = 0; ball.vy = 0;
+    }
+  }
+
+  function update() {
+    if (state === 'paused') return;
+    const l = keys.left || touch.left, r = keys.right || touch.right;
+    const want = (r ? 7.8 : 0) - (l ? 7.8 : 0);
+    player.vx += (want - player.vx) * 0.45;
+    aiControl();
+
+    for (const pin of [player, cpu]) {
+      if (pin.cool > 0) pin.cool--;
+      pin.squash *= 0.8;
+      const tiltTarget = pin.ground ? pin.vx * 0.02 : pin.vx * 0.035;
+      pin.tilt += (tiltTarget - pin.tilt) * 0.2;
+    }
+
+    for (let s = 0; s < SUB; s++) {
+      updatePin(player, 1 / SUB);
+      updatePin(cpu, 1 / SUB);
+      if (state === 'play') updateBall(1 / SUB);
+      if (state !== 'play') break;
+    }
+    if (state !== 'play') { for (let s = 1; s < SUB; s++) { updatePin(player, 1 / SUB); updatePin(cpu, 1 / SUB); } }
+
+    if (state === 'serve') {
+      ball.x = server === player ? player.x + 11 : cpu.x - 11;
+      ball.y = 110 + Math.sin(performance.now() / 160) * (reduceMotion ? 0 : 3);
+      if (--timer <= 0) { state = 'play'; msg = ''; }
+    } else if (state === 'point') {
+      if (--timer <= 0) setupServe();
+    }
+    flash *= 0.93;
+  }
+
+  // ---------- drawing ----------
+  function drawCourt() {
+    const wall = ctx.createLinearGradient(0, 0, 0, G);
+    wall.addColorStop(0, '#141a29'); wall.addColorStop(1, '#25304a');
+    ctx.fillStyle = wall; ctx.fillRect(0, 0, W, G);
+
+    // gym lights
+    for (let i = 0; i < 5; i++) {
+      const x = 96 + i * 192;
+      const g = ctx.createRadialGradient(x, 0, 4, x, 0, 170);
+      g.addColorStop(0, 'rgba(255,236,200,0.18)'); g.addColorStop(1, 'rgba(255,236,200,0)');
+      ctx.fillStyle = g; ctx.fillRect(x - 170, 0, 340, 170);
+      ctx.fillStyle = '#f7ead2'; ctx.fillRect(x - 22, 0, 44, 5);
+    }
+    // wall padding band
+    ctx.fillStyle = '#1d2a4a'; ctx.fillRect(0, G - 70, W, 70);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let x = 0; x < W; x += 96) ctx.fillRect(x, G - 70, 2, 70);
+
+    // wood floor
+    const floor = ctx.createLinearGradient(0, G, 0, H);
+    floor.addColorStop(0, '#c98a4b'); floor.addColorStop(1, '#8f5a2c');
+    ctx.fillStyle = floor; ctx.fillRect(0, G, W, H - G);
+    ctx.strokeStyle = 'rgba(70,35,10,0.35)'; ctx.lineWidth = 1;
+    for (let y = G + 12; y < H; y += 14) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    for (let row = 0, y = G; y < H; row++, y += 14) {
+      for (let x = (row % 3) * 70; x < W; x += 210) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 14); ctx.stroke(); }
+    }
+    // court lines
+    ctx.fillStyle = '#f3ece0';
+    ctx.fillRect(0, G, W, 3);
+    ctx.fillStyle = 'rgba(243,236,224,0.55)';
+    ctx.fillRect(NET_X - 160, G, 3, 8); ctx.fillRect(NET_X + 157, G, 3, 8);
+  }
+
+  function drawNet() {
+    const left = NET_X - 3, top = NET_TOP + 6;
+    // mesh hanging from top, behind the post
+    ctx.fillStyle = 'rgba(10,14,24,0.35)';
+    ctx.fillRect(NET_X - 34, top, 68, 90);
+    ctx.strokeStyle = 'rgba(243,236,224,0.35)'; ctx.lineWidth = 1;
+    for (let x = NET_X - 34; x <= NET_X + 34; x += 8.5) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + 90); ctx.stroke(); }
+    for (let y = top; y <= top + 90; y += 9) { ctx.beginPath(); ctx.moveTo(NET_X - 34, y); ctx.lineTo(NET_X + 34, y); ctx.stroke(); }
+    ctx.fillStyle = '#f3ece0'; ctx.fillRect(NET_X - 36, top - 4, 72, 7);
+    ctx.fillRect(NET_X - 36, top + 88, 72, 3);
+    // post
+    const post = ctx.createLinearGradient(NET_X - NET_W / 2, 0, NET_X + NET_W / 2, 0);
+    post.addColorStop(0, '#7d879c'); post.addColorStop(0.5, '#dfe4ee'); post.addColorStop(1, '#6b7488');
+    ctx.fillStyle = post;
+    ctx.fillRect(NET_X - NET_W / 2, NET_TOP, NET_W, G - NET_TOP);
+    ctx.beginPath(); ctx.arc(NET_X, NET_TOP, NET_W / 2, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#e0413a'; ctx.fillRect(NET_X - NET_W / 2, NET_TOP + 100, NET_W, 7);
+  }
+
+  function shadow(x, w, alpha) {
+    ctx.fillStyle = `rgba(30,12,0,${alpha})`;
+    ctx.beginPath(); ctx.ellipse(x, G + 4, w, 5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function pinPath() {
+    ctx.beginPath();
+    ctx.moveTo(-13, 0);
+    ctx.bezierCurveTo(-31, -20, -29, -52, -14, -66);
+    ctx.bezierCurveTo(-7, -74, -8, -78, -12, -86);
+    ctx.bezierCurveTo(-19, -99, -11, -111, 0, -111);
+    ctx.bezierCurveTo(11, -111, 19, -99, 12, -86);
+    ctx.bezierCurveTo(8, -78, 7, -74, 14, -66);
+    ctx.bezierCurveTo(29, -52, 31, -20, 13, 0);
+    ctx.closePath();
+  }
+
+  function drawPin(pin) {
+    const air = Math.max(0, G - pin.y);
+    shadow(pin.x, 36 * Math.max(0.45, 1 - air / 300), 0.35 * Math.max(0.3, 1 - air / 300));
+    ctx.save();
+    ctx.translate(pin.x, pin.y);
+    ctx.rotate(pin.tilt);
+    const st = !pin.ground ? -0.06 : pin.squash;
+    ctx.scale(S * (1 + st), S * (1 - st));
+
+    pinPath();
+    const body = ctx.createLinearGradient(-28, 0, 28, 0);
+    body.addColorStop(0, '#d9d4cb'); body.addColorStop(0.35, '#ffffff'); body.addColorStop(1, '#bfb8ac');
+    ctx.fillStyle = body; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = pin.color;
+    ctx.fillRect(-30, -82, 60, 5);
+    ctx.fillRect(-30, -74, 60, 5);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(-30, -4, 60, 4);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(40,30,20,0.5)'; ctx.lineWidth = 1.5; pinPath(); ctx.stroke();
+
+    // face
+    const look = Math.max(-1, Math.min(1, (ball.x - pin.x) / 180));
+    const ex = pin.face * 3 + look * 2;
+    const eyeY = -96 + Math.max(-2, Math.min(2, (ball.y - (pin.y - 144)) / 120));
+    ctx.fillStyle = '#1b2233';
+    ctx.beginPath(); ctx.arc(ex - 4.5, eyeY, 2.2, 0, Math.PI * 2); ctx.arc(ex + 4.5, eyeY, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1b2233'; ctx.lineWidth = 1.6; ctx.beginPath();
+    if (pin.ground) ctx.arc(ex, -90, 3.5, 0.2 * Math.PI, 0.8 * Math.PI);
+    else { ctx.ellipse(ex, -89, 2, 2.6, 0, 0, Math.PI * 2); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBall() {
+    if (ball.y > -BALL_R) {
+      const air = G - ball.y;
+      shadow(ball.x, 18 * Math.max(0.35, 1 - air / 420), 0.28 * Math.max(0.25, 1 - air / 420));
+    }
+    if (ball.y < -BALL_R) {
+      // off-screen marker
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.moveTo(ball.x, 6); ctx.lineTo(ball.x - 8, 20); ctx.lineTo(ball.x + 8, 20); ctx.closePath(); ctx.fill();
+      return;
+    }
+    ctx.save();
+    ctx.translate(ball.x, ball.y); ctx.rotate(ball.spin);
+    ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffd23f'; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.strokeStyle = '#2e5bd8'; ctx.lineWidth = 4.5;
+    ctx.beginPath(); ctx.arc(-BALL_R * 1.3, 0, BALL_R * 1.25, -0.6, 0.6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(BALL_R * 1.3, 0, BALL_R * 1.25, Math.PI - 0.6, Math.PI + 0.6); ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-BALL_R, 0); ctx.lineTo(BALL_R, 0); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.arc(5, 6, BALL_R, 0, Math.PI * 2); ctx.arc(0, 0, BALL_R, 0, Math.PI * 2, true); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(30,20,0,0.5)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawScoreboard() {
+    const bw = 300, bh = 62, bx = W / 2 - bw / 2, by = 18;
+    ctx.fillStyle = '#0b0f19'; ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#3a4562'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '12px "Rubik", system-ui, sans-serif';
+    ctx.fillStyle = '#9aa3b8';
+    ctx.fillText('SEN', bx + 60, by + 14); ctx.fillText('RAKİP', bx + bw - 60, by + 14);
+    ctx.fillText(`${WIN} SAYI`, W / 2, by + 14);
+    ctx.font = '34px "Bungee", Impact, sans-serif';
+    ctx.fillStyle = '#ff6a5c'; ctx.fillText(String(score.p).padStart(2, '0'), bx + 60, by + 40);
+    ctx.fillStyle = '#7fa2ff'; ctx.fillText(String(score.c).padStart(2, '0'), bx + bw - 60, by + 40);
+    ctx.fillStyle = '#3a4562'; ctx.fillText(':', W / 2, by + 39);
+    // serve dot
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(server === player ? bx + 18 : bx + bw - 18, by + 40, 4, 0, Math.PI * 2); ctx.fill();
+
+    if (msg && (state === 'serve' || state === 'point')) {
+      ctx.font = '18px "Bungee", Impact, sans-serif';
+      ctx.fillStyle = `rgba(243,236,224,${0.75 + flash * 0.25})`;
+      ctx.fillText(msg, W / 2, by + bh + 26);
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    drawCourt();
+    drawNet();
+    drawPin(player);
+    drawPin(cpu);
+    if (state !== 'title') drawBall();
+    drawScoreboard();
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load('34px "Bungee"'), document.fonts.load('12px "Rubik"')]).catch(() => {});
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
